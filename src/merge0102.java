@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import javax.sound.sampled.*; // 音楽を流すためのパッケージ
+import java.io.*; // CSVを読み込むためのパッケージ
 
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
@@ -579,14 +580,7 @@ class LaneFrame extends JFrame {
         });
 
         this.setVisible(true);
-
-        // デバッグ用のノーツ追加
-        for (int i = 0; i < 10; i++) {
-            models.get(0).addNote(i * 1000 + 1000, 0);
-            models.get(1).addNote(i * 1000 + 1000, 1);
-            models.get(2).addNote(i * 1000 + 1500, 0);
-            models.get(3).addNote(i * 1000 + 1200, 1);
-        }
+        loadNotes("test.csv");
 
         // フォーカスを設定
         for (ViewLane view : views) {
@@ -619,6 +613,77 @@ class LaneFrame extends JFrame {
             view.setBounds(startX + i * laneWidth, startY, laneWidth, laneHeight);
             view.updateJudgmentLine(laneHeight); // 判定ラインを更新
         }
+    }
+
+        /**
+     * 譜面データのCSVを取り込み、適切にaddNote()する
+     * @param path CSVファイルの相対アドレス
+     */
+private void loadNotes(String path) {
+    String csvFile = path;
+    String line;
+    int measure = 0; 
+    int index = 0; 
+    int beats = -1; 
+    double bpm = -1; 
+
+    try (BufferedReader br = new BufferedReader(new FileReader(csvFile))) {
+        int timeAddNotes = 0;
+        while ((line = br.readLine()) != null) {
+            String[] valuesLine = line.split(",", -1); 
+
+            if (valuesLine.length < 5) {
+                System.out.println("Skipped line due to insufficient columns: " + line);
+                continue;
+            }
+
+            if (valuesLine[4].startsWith("#")) {
+                continue;
+            }
+
+            if (!valuesLine[4].isEmpty()) {
+                beats = Integer.parseInt(valuesLine[4].split("/")[1]);
+            }
+
+            if (valuesLine.length > 5 && !valuesLine[5].isEmpty()) {
+                bpm = Integer.parseInt(valuesLine[5]);
+            }
+
+            if (valuesLine.length > 6 && !valuesLine[6].isEmpty()) {
+                timeAddNotes += Integer.parseInt(valuesLine[6]);
+            }
+
+            index = (index + 1) % beats;
+            if (index == 0) {
+                measure++;
+            }
+
+            for (int i = 0; i < models.size(); i++) {
+                if (valuesLine.length > i && valuesLine[i].equals("1")) {
+                    models.get(i).addNote(timeAddNotes, 0);
+                    System.out.println("Note is inserted!:" + timeAddNotes + "[type:0][measure:" + measure + "][index:" + index + "]");
+                } else if (valuesLine.length > i && valuesLine[i].equals("2")) {
+                    models.get(i).addNote(timeAddNotes, 1);
+                    System.out.println("Note is inserted!:" + timeAddNotes + "[type:1][measure:" + measure + "][index:" + index + "]");
+                }
+            }
+
+            timeAddNotes += getInterval(bpm, beats);
+        }
+    } catch (IOException e) {
+        e.printStackTrace();
+    }
+}
+
+
+    /**
+     * 指定した拍子・BPMにおける最小音符間隔をミリ秒で返す。
+     * 例：BPM 60, beats 8 の場合、BPM60における八分音符の長さをミリ秒で返す。
+     * @param bpm
+     * @param beats
+     */
+    private int getInterval(double bpm, int beats) {
+        return (int)(60000.0 / bpm * (4.0 / beats));
     }
 
     public static void main(String[] args) {

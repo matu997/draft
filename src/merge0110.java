@@ -346,7 +346,9 @@ class ViewLane extends JPanel implements Observer {
 
     public ViewLane(NotesModel m, Controller c, ViewUpdate vu) {
         super(true);
-        this.setBackground(Color.white);
+
+        this.setOpaque(false);
+        this.setBackground(new Color(0,0,0,0)); 
         this.addKeyListener(c);
         this.setPreferredSize(new Dimension(120, 500)); // レーンサイズを設定。ノーツのサイズを変えたときはここも変える。
         LineBorder border = new LineBorder(Color.RED, 2, true);
@@ -393,19 +395,21 @@ class ViewLane extends JPanel implements Observer {
         super.paintComponent(g); // 背景をクリア（透明設定を保持）
     
         Graphics2D g2d = (Graphics2D) g.create();
-    
-        // 背景色を半透明で描画
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f)); // 透明度50%
-        g2d.setColor(Color.WHITE); // レーンの背景色
+
+        // 50% の不透明度で上書き合成
+        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+        g2d.setColor(Color.BLUE);
         g2d.fillRect(0, 0, getWidth(), getHeight());
-    
+
+        // 後続のノート描画などは合成モードを戻す
+        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
+
         // ノートを描画
         for (Note n : model.getNotes()) {
             n.draw(g2d); // Graphics2D を使用してノートを描画
         }
     
         // 判定ラインの描画（完全不透明）
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
         g2d.setColor(Color.BLACK);
         g2d.drawLine(0, judgmentLineY, this.getWidth(), judgmentLineY);
     
@@ -415,6 +419,27 @@ class ViewLane extends JPanel implements Observer {
     // Timerによって16msごとに呼ばれるメソッド。描画を更新する。
     public void update(Observable o, Object arg) {
         repaint();
+    }
+}
+class BackgroundPanel extends JPanel {
+    private Image backgroundImage;
+
+    // コンストラクタで背景画像を受け取り、フィールドに保持
+    public BackgroundPanel(Image backgroundImage) {
+        this.backgroundImage = backgroundImage;
+        // レイアウトマネージャを使わず自由配置する場合は
+        // setLayout(null); などとするとよい
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        // 親クラス(JPanel)の背景描画などを処理
+        super.paintComponent(g);
+
+        // 背景画像がある場合に描画
+        if (backgroundImage != null) {
+            g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+        }
     }
 }
 
@@ -528,17 +553,9 @@ class LaneFrame extends JFrame {
     ViewUpdate vu;
 
     public LaneFrame() {
-        // レイアウトを無効化
-        this.setLayout(null);
-
-        models = new ArrayList<>();
-        views = new ArrayList<>();
-        vu = new ViewUpdate(models);
-        cont = new Controller(models, vu);
-
-        // 背景画像のロード
+        // 背景画像をロード
         try {
-            String imagePath = "Blender-UV-Grid-01.jpg"; // 適切なパスを指定
+            String imagePath = "Blender-UV-Grid-01.jpg"; // パスは適宜修正
             backgroundImage = ImageIO.read(new File(imagePath));
             if (backgroundImage == null) {
                 System.err.println("Failed to load image: " + imagePath);
@@ -546,10 +563,19 @@ class LaneFrame extends JFrame {
                 System.out.println("Image loaded successfully: " + imagePath);
             }
         } catch (IOException e) {
-            System.err.println("Exception while loading image: " + e.getMessage());
             e.printStackTrace();
         }
+        // 背景パネルを生成し、フレームのcontentPaneとして設定
+        BackgroundPanel backgroundPanel = new BackgroundPanel(backgroundImage);
+        // 必要に応じてレイアウト設定。null レイアウトなら好きな位置に配置できる。
+        backgroundPanel.setLayout(null);
+        this.setContentPane(backgroundPanel);
 
+        // モデル，ビュー，コントローラを生成
+        models = new ArrayList<>();
+        views = new ArrayList<>();
+        vu = new ViewUpdate(models);
+        cont = new Controller(models, vu);
         // モデルとビューを生成してリストに追加
         for (int i = 0; i < 4; i++) {
             NotesModel model = new NotesModel(i, null); // 一時的にViewをnull
@@ -557,15 +583,17 @@ class LaneFrame extends JFrame {
             model.setView(view); // モデルにビューをセット
             models.add(model);
             views.add(view);
+
             view.setOpaque(false); // 背景を透過
             view.setFocusable(true);
-            this.add(view);
+            backgroundPanel.add(view);
         }
 
         // ウィンドウの基本設定
         this.setTitle("Lane Test");
         this.setSize(1600, 1200);
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        this.setVisible(true);
 
         // コンポーネントの位置を初期化
         updateComponentPositions();
@@ -575,11 +603,8 @@ class LaneFrame extends JFrame {
             @Override
             public void componentResized(ComponentEvent e) {
                 updateComponentPositions();
-                repaint(); // リサイズ時に再描画
             }
         });
-
-        this.setVisible(true);
         loadNotes("test.csv");
 
         // フォーカスを設定
@@ -601,6 +626,7 @@ class LaneFrame extends JFrame {
     private void updateComponentPositions() {
         int width = this.getWidth();
         int height = this.getHeight();
+        //System.out.println("width: " + width + ", height: " + height);
 
         // 各レーンを相対的に配置
         int laneWidth = Math.max(width / 1600 * 150, 150); // ウィンドウ幅に対してレーンの幅を設定

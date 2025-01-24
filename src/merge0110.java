@@ -27,6 +27,10 @@ abstract class Note {
     // 描画用の変数。centerX, centerYは中心座標、radiusは半径、colorは色。（のはずだけどX,Yが中心座標じゃない気もする）
     protected double centerX, centerY, radius = 10;
     protected Color color;
+    protected Image image;
+
+    protected int width = 150;
+    protected int height = 50;
 
     // ゲーム用の変数
     protected double time; // timeは判定ラインに到達するまでの時間ms。定数。
@@ -64,31 +68,43 @@ abstract class Note {
     public double getOffset() {
         return offset;
     }
+    public void setImage(String path) {
+        this.image = new ImageIcon(path).getImage();
+    }
+    public void setPosition(double x, double y) {
+        centerX = x;
+        centerY = y;
+    }
 
-    abstract public void draw(Graphics g);
+    public abstract void draw(Graphics g);
 }
 
 class TapNote extends Note {
     public TapNote(double x, double y) {
         super(x, y);
-        color = Color.RED;
+        setImage("images/tap_note.png"); // ノーツ画像を設定
     }
 
+    // 引数なしのコンストラクタ
     public TapNote() {
-        super();
-        color = Color.RED;
+        this(75, -1000); // デフォルトの座標を設定
     }
 
     public void draw(Graphics g) {
-        g.setColor(color);
-        g.fillOval((int) (centerX), (int) (centerY), (int) (2 * radius), (int) (2 * radius));
+        if (image != null) {
+            int drawX = (int) (centerX - width / 2);
+            int drawY = (int) (centerY - height / 2);
+            g.drawImage(image, drawX, drawY, width, height, null);
+        } else {
+            System.out.println("TapNote image is null");
+        }
     }
 }
 
 class TraceNote extends Note {
     public TraceNote(double x, double y) {
         super(x, y);
-        color = Color.BLUE;
+        this.image = Toolkit.getDefaultToolkit().getImage("images/trace_note.png");
     }
 
     public TraceNote() {
@@ -335,6 +351,19 @@ class MusicPlayer extends SoundPlayer{
 /// View
 @SuppressWarnings("deprecation")
 class ViewLane extends JPanel implements Observer {
+
+    private ArrayList<Image> effectImages; // エフェクト画像を格納するリスト
+    private int currentEffectFrame = -1;   // 現在のエフェクトフレーム (-1 で非再生)
+    private Timer effectTimer;             // エフェクト再生用タイマー
+    private boolean effectActive = false;  // エフェクトが再生中かどうか
+
+    private Image laneImage;
+
+    //キーの状態を管理する変数
+    private boolean keyPressed = false; // キー押下状態
+    private Image defaultKeyImage; // 通常時のキー画像
+    private Image pressedKeyImage; // 押下時のキー画像
+
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     private int judgmentLineY;// 判定ラインのY座標
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -354,6 +383,7 @@ class ViewLane extends JPanel implements Observer {
         LineBorder border = new LineBorder(Color.RED, 2, true);
         this.setBorder(border);
         vu.addObserver(this);
+        this.setBorder(null); 
         //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         judgmentLineY = 410; // 判定ラインのY座標を設定
         //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -370,10 +400,60 @@ class ViewLane extends JPanel implements Observer {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        //エフェクトをロード
+        effectImages = new ArrayList<>();
+        try {
+            for (int i = 1; i <=15; i++) { // エフェクトフレーム数に応じて調整
+                String filename = String.format("effects/effect_%02d.png", i); // パスを修正
+                Image img = Toolkit.getDefaultToolkit().getImage(filename);
+                effectImages.add(img);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        // エフェクト再生用タイマーを初期化
+        effectTimer = new Timer(30, e -> updateEffectFrame());
 
         // タイマーでフレーム更新
         animationTimer = new Timer(60, e -> updateFrame()); // 100ms間隔（10FPS相当）
         animationTimer.start();
+    }
+    public void setLaneImage(String imagePath) {
+        this.laneImage = new ImageIcon(imagePath).getImage();
+    }
+    public void setKeyImages(String defaultImagePath, String pressedImagePath) {
+        this.defaultKeyImage = new ImageIcon(defaultImagePath).getImage();
+        this.pressedKeyImage = new ImageIcon(pressedImagePath).getImage();
+    }
+    public void setKeyPressed(boolean pressed) {
+        this.keyPressed = pressed;
+        repaint(); // 再描画して状態を反映
+    }
+    // エフェクト再生を開始
+    public void startEffect() {
+        if (!effectImages.isEmpty()) {
+            // アニメーションをリセットして再スタート
+            effectTimer.stop(); // タイマーを停止
+            currentEffectFrame = 0; // フレームを最初にリセット
+            effectActive = true; // 再生フラグをオン
+            effectTimer.start(); // 再スタート
+            System.out.println("Effect started/restarted on this lane."); // デバッグ表示
+        } else {
+            System.out.println("No effect images loaded."); // デバッグ表示
+        }
+    }
+    // エフェクトフレームの更新
+    private void updateEffectFrame() {
+        if (currentEffectFrame >= 0 && currentEffectFrame < effectImages.size() - 1) {
+            currentEffectFrame++;
+        } else {
+            effectTimer.stop();
+            effectActive = false;
+            currentEffectFrame = -1; // 再生終了
+        }
+        repaint(); // 再描画をトリガー
     }
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     public void updateJudgmentLine(int panelHeight) {
@@ -395,23 +475,47 @@ class ViewLane extends JPanel implements Observer {
         super.paintComponent(g); // 背景をクリア（透明設定を保持）
     
         Graphics2D g2d = (Graphics2D) g.create();
-
-        // 50% の不透明度で上書き合成
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
-        g2d.setColor(Color.BLUE);
-        g2d.fillRect(0, 0, getWidth(), getHeight());
-
-        // 後続のノート描画などは合成モードを戻す
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
-
+        //レーンの描画
+        if (laneImage != null) {
+            float alpha = 0.7f; // 半透明（0.0f = 完全透明, 1.0f = 完全不透明）
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+            g2d.drawImage(laneImage, 0, 0, getWidth(), getHeight(), null);
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f)); // 不透明度を元に戻す
+        }
         // ノートを描画
         for (Note n : model.getNotes()) {
             n.draw(g2d); // Graphics2D を使用してノートを描画
         }
+
+            // キー画像を描画
+        Image keyImage = keyPressed ? pressedKeyImage : defaultKeyImage;
+        if (keyImage != null) {
+            int keyWidth = 150; // 例: キー画像の幅
+            int keyHeight = 200; // 例: キー画像の高さ
+            int keyX = (getWidth() - keyWidth) / 2; // レーンの中央
+            int keyY = getHeight() - 200; // レーンの下部
+            g.drawImage(keyImage, keyX, keyY, keyWidth, keyHeight, null);
+        }
+
+        // 後続のノート描画などは合成モードを戻す
+        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
+
     
         // 判定ラインの描画（完全不透明）
         g2d.setColor(Color.BLACK);
         g2d.drawLine(0, judgmentLineY, this.getWidth(), judgmentLineY);
+
+    // 半透明でエフェクトを描画
+        if (effectActive && currentEffectFrame >= 0) {
+            Image effect = effectImages.get(currentEffectFrame);
+            if (effect != null) {
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.7f)); // 70%の不透明度
+                int effectX = (this.getWidth() - effect.getWidth(null)) / 2;
+                int effectY = judgmentLineY - 1000;
+                g2d.drawImage(effect, effectX, effectY, null);
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f)); // 不透明度を元に戻す
+            }
+        }
     
         g2d.dispose();
     } 
@@ -471,27 +575,50 @@ class ViewUpdate extends Observable implements ActionListener{
 // Controller (C)
 class Controller implements KeyListener {
     protected ArrayList<NotesModel> models;
+    protected ArrayList<ViewLane> views;
     protected ViewUpdate vu;
     protected int dragStartX, dragStartY;
     protected int keyStatus = 0; // 2bitで、1bit目が1ならd、2bit目が1ならf, 3bit目が1ならj, 4bit目が1ならkが押されている
 
     protected SEPlayer tapNote;
 
-    // コンストラクタ
-    public Controller(ArrayList<NotesModel> models, ViewUpdate vu) {
+    // コンストラクタでモデルとビューのリストを受け取る
+    public Controller(ArrayList<NotesModel> models, ArrayList<ViewLane> views, ViewUpdate vu) {
         this.models = models;
+        this.views = views; // views を初期化
         this.vu = vu;
         tapNote = new SEPlayer("hit1.wav", 50);
     }
 
     // キーが押されたときの処理。スペースキーでゲームスタート。
     public void keyPressed(KeyEvent e) {
+
         if (e.getKeyCode() == KeyEvent.VK_SPACE) {
             double currentTime = System.currentTimeMillis();
             for (NotesModel m : models) {
                 m.gameStart(currentTime);
             }
             vu.start();
+        }
+
+        char c = e.getKeyChar();
+        switch (c) {
+            case 'd':
+                views.get(0).setKeyPressed(true); // キー押下状態を更新
+                models.get(0).tapJudge();
+                break;
+            case 'f':
+                views.get(1).setKeyPressed(true);
+                models.get(1).tapJudge();
+                break;
+            case 'j':
+                views.get(2).setKeyPressed(true);
+                models.get(2).tapJudge();
+                break;
+            case 'k':
+                views.get(3).setKeyPressed(true);
+                models.get(3).tapJudge();
+                break;
         }
     }
 
@@ -501,22 +628,22 @@ class Controller implements KeyListener {
         switch (c) {
             case 'd':
                 models.get(0).tapJudge();
-                keyStatus += 1;
+                views.get(0).startEffect(); // エフェクト再生
                 new Thread(() -> tapNote.startSE()).start();
                 break;
             case 'f':
                 models.get(1).tapJudge();
-                keyStatus += 2;
+                views.get(1).startEffect(); // エフェクト再生
                 new Thread(() -> tapNote.startSE()).start();
                 break;
             case 'j':
                 models.get(2).tapJudge();
-                keyStatus += 4;
+                views.get(2).startEffect(); // エフェクト再生
                 new Thread(() -> tapNote.startSE()).start();
                 break;
             case 'k':
                 models.get(3).tapJudge();
-                keyStatus += 8;
+                views.get(3).startEffect(); // エフェクト再生
                 new Thread(() -> tapNote.startSE()).start();
                 break;
         }
@@ -527,16 +654,16 @@ class Controller implements KeyListener {
         char c = e.getKeyChar();
         switch (c) {
             case 'd':
-                keyStatus -= 1;
+                views.get(0).setKeyPressed(false); // キー押下解除
                 break;
             case 'f':
-                keyStatus -= 2;
+                views.get(1).setKeyPressed(false);
                 break;
             case 'j':
-                keyStatus -= 4;
+                views.get(2).setKeyPressed(false);
                 break;
             case 'k':
-                keyStatus -= 8;
+                views.get(3).setKeyPressed(false);
                 break;
         }
     }
@@ -575,18 +702,25 @@ class LaneFrame extends JFrame {
         models = new ArrayList<>();
         views = new ArrayList<>();
         vu = new ViewUpdate(models);
-        cont = new Controller(models, vu);
+        cont = new Controller(models, views, vu);
         // モデルとビューを生成してリストに追加
         for (int i = 0; i < 4; i++) {
             NotesModel model = new NotesModel(i, null); // 一時的にViewをnull
             ViewLane view = new ViewLane(model, cont, vu);
             model.setView(view); // モデルにビューをセット
+
+            view.setLaneImage("images/lane" + i + ".png"); // レーン画像を設定
+
+            view.setKeyImages("images/default" + i + ".png", "images/pressed" + i + ".png");
+
             models.add(model);
             views.add(view);
 
             view.setOpaque(false); // 背景を透過
             view.setFocusable(true);
             backgroundPanel.add(view);
+
+            //レーン画像を設定
         }
 
         // ウィンドウの基本設定
